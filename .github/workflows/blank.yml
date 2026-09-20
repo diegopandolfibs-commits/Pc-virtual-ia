@@ -1,0 +1,84 @@
+name: PC Virtual Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-2025
+
+    steps:
+      - name: Instalar Tailscale
+        shell: powershell
+        run: |
+          winget install --id Tailscale.Tailscale --silent --accept-package-agreements --accept-source-agreements
+
+      - name: Conectar ao Tailscale
+        shell: powershell
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: |
+          & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=$env:TS_AUTHKEY --hostname=github-pc
+
+      - name: Ativar acesso RDP
+        shell: powershell
+        run: |
+          Set-ItemProperty `
+            -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" `
+            -Name "fDenyTSConnections" `
+            -Value 0
+
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+      - name: Criar usuário RDP
+        shell: powershell
+        run: |
+          $password = [System.Web.Security.Membership]::GeneratePassword(16,4)
+
+          $securePassword = ConvertTo-SecureString `
+            $password `
+            -AsPlainText `
+            -Force
+
+          New-LocalUser `
+            -Name "remote" `
+            -Password $securePassword `
+            -AccountNeverExpires
+
+          Add-LocalGroupMember `
+            -Group "Remote Desktop Users" `
+            -Member "remote"
+
+          "RDP_USER=remote" | Out-File $env:GITHUB_ENV -Append
+          "RDP_PASSWORD=$password" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Mostrar IP do Tailscale
+        shell: powershell
+        run: |
+          Start-Sleep -Seconds 5
+
+          $ip = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "       PC VIRTUAL ONLINE"
+          Write-Host "======================================"
+          Write-Host "IP: $ip"
+          Write-Host "PORTA: 3389"
+          Write-Host "USUARIO: $env:RDP_USER"
+          Write-Host "SENHA: $env:RDP_PASSWORD"
+          Write-Host "======================================"
+          Write-Host ""
+          Write-Host "Conecte pelo RDP usando:"
+          Write-Host "$ip`:3389"
+
+      - name: Manter PC ligado
+        shell: powershell
+        run: |
+          Write-Host "PC virtual funcionando..."
+          Write-Host "Não feche este workflow."
+
+          while ($true) {
+            Write-Host "PC online: $(Get-Date)"
+            Start-Sleep -Seconds 60
+          }
