@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       access_password:
-        description: "Defina a senha para acessar o PC virtual"
+        description: "Senha do PC virtual"
         required: true
         default: "123456"
 
@@ -15,7 +15,7 @@ jobs:
 
     steps:
 
-      - name: Instalar XFCE, xRDP e D-Bus
+      - name: Instalar desktop e RDP
         run: |
           sudo apt-get update
 
@@ -24,11 +24,9 @@ jobs:
             xfce4-goodies \
             xfce4-session \
             xrdp \
-            dbus-x11 \
-            dbus-user-session \
-            policykit-1
+            dbus-x11
 
-      - name: Criar usuário remoto
+      - name: Criar usuário
         run: |
           sudo useradd -m -s /bin/bash remote || true
 
@@ -38,64 +36,34 @@ jobs:
           sudo usermod -aG sudo remote
           sudo usermod -aG ssl-cert xrdp
 
-      - name: Configurar sessão XFCE
+      - name: Configurar XFCE
         run: |
-          sudo mkdir -p /etc/xrdp
-
-          sudo bash -c 'cat > /home/remote/.xsession' <<'EOF'
+          sudo -u remote bash -c 'cat > ~/.xsession <<EOF
           #!/bin/bash
-
-          export LANG=C.UTF-8
-          export LANGUAGE=C.UTF-8
-          export LC_ALL=C.UTF-8
-
-          export XDG_CONFIG_DIRS=/etc/xdg/xdg-xfce:/etc/xdg
-          export XDG_DATA_DIRS=/usr/share/xfce4:/usr/local/share:/usr/share
-
-          dbus-launch --exit-with-session startxfce4
-          EOF
+          startxfce4
+          EOF'
 
           sudo chmod +x /home/remote/.xsession
           sudo chown remote:remote /home/remote/.xsession
 
-      - name: Corrigir inicialização do xRDP
+      - name: Configurar xRDP
         run: |
-          sudo cp /etc/xrdp/startwm.sh /etc/xrdp/startwm.sh.backup
+          sudo sed -i 's/^test -x/#test -x/' /etc/xrdp/startwm.sh
+          sudo sed -i 's/^exec/#exec/' /etc/xrdp/startwm.sh
 
-          sudo bash -c 'cat > /etc/xrdp/startwm.sh' <<'EOF'
-          #!/bin/sh
-
-          export LANG=C.UTF-8
-          export LANGUAGE=C.UTF-8
-          export LC_ALL=C.UTF-8
+          sudo bash -c 'cat >> /etc/xrdp/startwm.sh <<EOF
 
           export XDG_CONFIG_DIRS=/etc/xdg/xdg-xfce:/etc/xdg
-          export XDG_DATA_DIRS=/usr/share/xfce4:/usr/local/share:/usr/share
+          export XDG_DATA_DIRS=/usr/share/xfce4:/usr/share:/usr/local/share
 
           unset DBUS_SESSION_BUS_ADDRESS
           unset XDG_RUNTIME_DIR
 
-          if [ -r /etc/profile ]; then
-              . /etc/profile
-          fi
+          exec startxfce4
+          EOF'
 
-          if [ -r "$HOME/.profile" ]; then
-              . "$HOME/.profile"
-          fi
-
-          exec dbus-launch --exit-with-session startxfce4
-          EOF
-
-          sudo chmod +x /etc/xrdp/startwm.sh
-
-      - name: Iniciar xRDP
-        run: |
           sudo systemctl enable xrdp
           sudo systemctl restart xrdp
-
-          sleep 3
-
-          sudo systemctl --no-pager status xrdp || true
 
       - name: Instalar Tailscale
         run: |
@@ -109,7 +77,7 @@ jobs:
             --authkey="$TS_AUTHKEY" \
             --hostname="github-pc"
 
-      - name: Mostrar informações
+      - name: Mostrar dados de acesso
         run: |
           sleep 5
 
@@ -120,10 +88,10 @@ jobs:
           echo "          PC VIRTUAL ONLINE"
           echo "=========================================="
           echo ""
-          echo "IP:"
+          echo "PC NAME:"
           echo "$IP"
           echo ""
-          echo "PORTA RDP:"
+          echo "PORTA:"
           echo "3389"
           echo ""
           echo "USUÁRIO:"
@@ -132,16 +100,11 @@ jobs:
           echo "SENHA:"
           echo "A senha definida no Run workflow"
           echo ""
-          echo "WINDOWS APP:"
-          echo "$IP"
-          echo ""
           echo "=========================================="
 
-      - name: Manter máquina ligada
+      - name: Manter PC ligado
         run: |
-          echo "PC virtual funcionando..."
-
           while true; do
-            echo "Online: $(date)"
+            echo "PC virtual online - $(date)"
             sleep 60
           done
