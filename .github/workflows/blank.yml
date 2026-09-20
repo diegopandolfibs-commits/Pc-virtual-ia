@@ -15,42 +15,33 @@ jobs:
 
     steps:
 
-      - name: Instalar ambiente gráfico e VNC
+      - name: Instalar XFCE e xRDP
         run: |
           sudo apt-get update
 
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             xfce4 \
             xfce4-goodies \
-            tigervnc-standalone-server \
-            tigervnc-tools \
-            dbus-x11 \
-            curl
+            xrdp \
+            dbus-x11
 
-      - name: Configurar senha do VNC
+      - name: Criar usuário remoto
         run: |
-          mkdir -p "$HOME/.vnc"
+          sudo useradd -m -s /bin/bash remote || true
 
-          printf '%s\n' "${{ github.event.inputs.access_password }}" \
-            | vncpasswd -f > "$HOME/.vnc/passwd"
+          echo "remote:${{ github.event.inputs.access_password }}" \
+            | sudo chpasswd
 
-          chmod 600 "$HOME/.vnc/passwd"
+          sudo usermod -aG sudo remote
 
-      - name: Configurar XFCE
+      - name: Configurar XFCE para xRDP
         run: |
-          cat > "$HOME/.vnc/xstartup" <<'EOF'
-          #!/bin/sh
+          echo "startxfce4" | sudo tee /home/remote/.xsession
 
-          unset SESSION_MANAGER
-          unset DBUS_SESSION_BUS_ADDRESS
+          sudo chown remote:remote /home/remote/.xsession
 
-          export XDG_CURRENT_DESKTOP=XFCE
-          export XDG_SESSION_DESKTOP=xfce
-
-          exec dbus-launch --exit-with-session startxfce4
-          EOF
-
-          chmod +x "$HOME/.vnc/xstartup"
+          sudo systemctl enable xrdp
+          sudo systemctl restart xrdp
 
       - name: Instalar Tailscale
         run: |
@@ -64,13 +55,7 @@ jobs:
             --authkey="$TS_AUTHKEY" \
             --hostname="github-pc"
 
-      - name: Iniciar VNC
-        run: |
-          vncserver :1 \
-            -geometry 1280x720 \
-            -depth 24
-
-      - name: Mostrar informações de acesso
+      - name: Verificar conexão
         run: |
           sleep 5
 
@@ -81,14 +66,14 @@ jobs:
           echo "          PC VIRTUAL ONLINE"
           echo "=========================================="
           echo ""
-          echo "IP TAILSCALE:"
+          echo "ENDEREÇO PARA O WINDOWS APP:"
           echo "$IP"
           echo ""
-          echo "PORTA VNC:"
-          echo "5901"
+          echo "PORTA:"
+          echo "3389"
           echo ""
-          echo "ENDEREÇO:"
-          echo "$IP:5901"
+          echo "USUÁRIO:"
+          echo "remote"
           echo ""
           echo "SENHA:"
           echo "A senha definida no Run workflow"
@@ -98,7 +83,6 @@ jobs:
       - name: Manter máquina ligada
         run: |
           echo "PC virtual funcionando."
-          echo "Não encerre o workflow."
 
           while true; do
             echo "Online: $(date)"
