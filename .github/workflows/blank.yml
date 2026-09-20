@@ -15,15 +15,18 @@ jobs:
 
     steps:
 
-      - name: Instalar XFCE e xRDP
+      - name: Instalar XFCE, xRDP e D-Bus
         run: |
           sudo apt-get update
 
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             xfce4 \
             xfce4-goodies \
+            xfce4-session \
             xrdp \
-            dbus-x11
+            dbus-x11 \
+            dbus-user-session \
+            policykit-1
 
       - name: Criar usuário remoto
         run: |
@@ -33,15 +36,66 @@ jobs:
             | sudo chpasswd
 
           sudo usermod -aG sudo remote
+          sudo usermod -aG ssl-cert xrdp
 
-      - name: Configurar XFCE para xRDP
+      - name: Configurar sessão XFCE
         run: |
-          echo "startxfce4" | sudo tee /home/remote/.xsession
+          sudo mkdir -p /etc/xrdp
 
+          sudo bash -c 'cat > /home/remote/.xsession' <<'EOF'
+          #!/bin/bash
+
+          export LANG=C.UTF-8
+          export LANGUAGE=C.UTF-8
+          export LC_ALL=C.UTF-8
+
+          export XDG_CONFIG_DIRS=/etc/xdg/xdg-xfce:/etc/xdg
+          export XDG_DATA_DIRS=/usr/share/xfce4:/usr/local/share:/usr/share
+
+          dbus-launch --exit-with-session startxfce4
+          EOF
+
+          sudo chmod +x /home/remote/.xsession
           sudo chown remote:remote /home/remote/.xsession
 
+      - name: Corrigir inicialização do xRDP
+        run: |
+          sudo cp /etc/xrdp/startwm.sh /etc/xrdp/startwm.sh.backup
+
+          sudo bash -c 'cat > /etc/xrdp/startwm.sh' <<'EOF'
+          #!/bin/sh
+
+          export LANG=C.UTF-8
+          export LANGUAGE=C.UTF-8
+          export LC_ALL=C.UTF-8
+
+          export XDG_CONFIG_DIRS=/etc/xdg/xdg-xfce:/etc/xdg
+          export XDG_DATA_DIRS=/usr/share/xfce4:/usr/local/share:/usr/share
+
+          unset DBUS_SESSION_BUS_ADDRESS
+          unset XDG_RUNTIME_DIR
+
+          if [ -r /etc/profile ]; then
+              . /etc/profile
+          fi
+
+          if [ -r "$HOME/.profile" ]; then
+              . "$HOME/.profile"
+          fi
+
+          exec dbus-launch --exit-with-session startxfce4
+          EOF
+
+          sudo chmod +x /etc/xrdp/startwm.sh
+
+      - name: Iniciar xRDP
+        run: |
           sudo systemctl enable xrdp
           sudo systemctl restart xrdp
+
+          sleep 3
+
+          sudo systemctl --no-pager status xrdp || true
 
       - name: Instalar Tailscale
         run: |
@@ -55,7 +109,7 @@ jobs:
             --authkey="$TS_AUTHKEY" \
             --hostname="github-pc"
 
-      - name: Verificar conexão
+      - name: Mostrar informações
         run: |
           sleep 5
 
@@ -66,10 +120,10 @@ jobs:
           echo "          PC VIRTUAL ONLINE"
           echo "=========================================="
           echo ""
-          echo "ENDEREÇO PARA O WINDOWS APP:"
+          echo "IP:"
           echo "$IP"
           echo ""
-          echo "PORTA:"
+          echo "PORTA RDP:"
           echo "3389"
           echo ""
           echo "USUÁRIO:"
@@ -78,11 +132,14 @@ jobs:
           echo "SENHA:"
           echo "A senha definida no Run workflow"
           echo ""
+          echo "WINDOWS APP:"
+          echo "$IP"
+          echo ""
           echo "=========================================="
 
       - name: Manter máquina ligada
         run: |
-          echo "PC virtual funcionando."
+          echo "PC virtual funcionando..."
 
           while true; do
             echo "Online: $(date)"
